@@ -157,13 +157,13 @@ export default function Footer() {
             </div>
             <div className="mt-6 space-y-1 text-xs text-gray-500">
               <div className="flex items-center gap-2">
-                <Phone className="w-3 h-3" /> +91 98765 43210
+                <Phone className="w-3 h-3" /> +91 96666 43123
               </div>
               <div className="flex items-center gap-2">
-                <Mail className="w-3 h-3" /> hello@vanisarees.com
+                <Mail className="w-3 h-3" /> bsvani1983@gmail.com
               </div>
               <div className="flex items-center gap-2">
-                <MapPin className="w-3 h-3" /> Varanasi, Uttar Pradesh
+                <MapPin className="w-3 h-3" /> Tirupati, Andhra Pradesh
               </div>
             </div>
           </div>

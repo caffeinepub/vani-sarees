@@ -27,7 +27,9 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { HttpAgent } from "@icp-sdk/core/agent";
 import {
+  Camera,
   Edit,
   Loader2,
   Package,
@@ -35,11 +37,13 @@ import {
   ShoppingBag,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import type { OrderStatus, Product, ProductInput } from "../backend.d";
 import { Category } from "../backend.d";
+import { loadConfig } from "../config";
 import { useNav } from "../context/NavContext";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   useAllOrders,
   useAllProducts,
@@ -50,6 +54,7 @@ import {
   useUpdateOrderStatus,
   useUpdateProduct,
 } from "../hooks/useQueries";
+import { StorageClient } from "../utils/StorageClient";
 import { getCategoryLabel } from "../utils/categoryGradient";
 import { formatDate, formatPrice } from "../utils/format";
 
@@ -73,9 +78,47 @@ function ProductForm({
   isPending: boolean;
 }) {
   const [form, setForm] = useState<ProductInput>(initial);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { identity } = useInternetIdentity();
 
   const update = <K extends keyof ProductInput>(k: K, v: ProductInput[K]) =>
     setForm((prev) => ({ ...prev, [k]: v }));
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadProgress(0);
+      const config = await loadConfig();
+      const agent = new HttpAgent({
+        identity: identity ?? undefined,
+        host: config.backend_host,
+      });
+      const storageClient = new StorageClient(
+        config.bucket_name,
+        config.storage_gateway_url,
+        config.backend_canister_id,
+        config.project_id,
+        agent,
+      );
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { hash } = await storageClient.putFile(bytes, (pct) =>
+        setUploadProgress(Math.round(pct)),
+      );
+      const url = await storageClient.getDirectURL(hash);
+      update("imageUrl", url);
+      toast.success("Photo uploaded!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to upload photo");
+    } finally {
+      setUploadProgress(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const rupees = form.price === 0n ? "" : String(Number(form.price) / 100);
 
   return (
     <div className="space-y-4">
@@ -122,13 +165,21 @@ function ProductForm({
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label className="font-sans text-sm">Price (in Paise)</Label>
+          <Label className="font-sans text-sm">Price (₹)</Label>
           <Input
             data-ocid="admin.product.price.input"
             type="number"
-            value={Number(form.price)}
-            onChange={(e) => update("price", BigInt(e.target.value || "0"))}
-            placeholder="e.g. 125000 for ₹1250"
+            value={rupees}
+            onChange={(e) => {
+              const val = e.target.value;
+              update(
+                "price",
+                val === ""
+                  ? 0n
+                  : BigInt(Math.round(Number.parseFloat(val) * 100)),
+              );
+            }}
+            placeholder="e.g. 1250 for ₹1,250"
           />
         </div>
         <div>
@@ -142,14 +193,49 @@ function ProductForm({
         </div>
       </div>
 
+      {/* Photo Upload */}
       <div>
-        <Label className="font-sans text-sm">Image URL (optional)</Label>
-        <Input
-          data-ocid="admin.product.image_url.input"
-          value={form.imageUrl}
-          onChange={(e) => update("imageUrl", e.target.value)}
-          placeholder="https://…"
-        />
+        <Label className="font-sans text-sm">Product Photo</Label>
+        <div className="flex items-center gap-3 mt-1">
+          {form.imageUrl && (
+            <img
+              src={form.imageUrl}
+              alt="Product preview"
+              className="w-14 h-14 object-cover rounded-lg border border-border"
+            />
+          )}
+          <div className="flex flex-col gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              data-ocid="admin.product.upload_button"
+              onChange={handleFileChange}
+              disabled={uploadProgress !== null}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="font-sans gap-2"
+              disabled={uploadProgress !== null}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera className="w-4 h-4" />
+              {form.imageUrl ? "Change Photo" : "Upload Photo"}
+            </Button>
+            {uploadProgress !== null && (
+              <div
+                data-ocid="admin.product.upload.loading_state"
+                className="text-xs font-sans text-muted-foreground flex items-center gap-1"
+              >
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Uploading… {uploadProgress}%
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -164,7 +250,7 @@ function ProductForm({
       <Button
         data-ocid="admin.product.save.submit_button"
         onClick={() => onSave(form)}
-        disabled={isPending || !form.name}
+        disabled={isPending || !form.name || uploadProgress !== null}
         style={{ backgroundColor: "#8A0F3A", color: "white" }}
         className="w-full font-sans font-semibold"
       >
